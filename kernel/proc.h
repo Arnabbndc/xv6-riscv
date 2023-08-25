@@ -104,4 +104,8 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  struct spinlock memlock;	// find places to set and release the locks 
+  int is_thread;               // if it is thread
+  int mem_id;                   // All threads will have the same physical pages with the mothrer, hence the same memory ID
 };

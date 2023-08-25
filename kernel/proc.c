@@ -53,6 +53,7 @@ procinit(void)
   initlock(&wait_lock, "wait_lock");
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
+
       p->state = UNUSED;
       p->kstack = KSTACK((int) (p - proc));
   }
@@ -123,6 +124,7 @@ allocproc(void)
 
 found:
   p->pid = allocpid();
+  p->mem_id = p->pid;
   p->state = USED;
 
   // Allocate a trapframe page.
@@ -145,7 +147,7 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
-
+  p->is_thread=0;
   return p;
 }
 
@@ -158,11 +160,18 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
-  if(p->pagetable)
-    proc_freepagetable(p->pagetable, p->sz);
+  if(p->pagetable){
+    if(p->is_thread==0)
+      proc_freepagetable(p->pagetable, p->sz);
+    else{
+      proc_freepagetable_edited(p->pagetable, p->sz);
+    }
+  
+  }
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
+  p->mem_id = 0;
   p->parent = 0;
   p->name[0] = 0;
   p->chan = 0;
@@ -215,6 +224,13 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
   uvmfree(pagetable, sz);
 }
 
+void
+proc_freepagetable_edited(pagetable_t pagetable, uint64 sz)
+{
+  uvmunmap(pagetable, TRAMPOLINE, 1, 0);
+  uvmunmap(pagetable, TRAPFRAME, 1, 0);
+  uvmfree_edited(pagetable, sz);
+}
 // a user program that calls exec("/init")
 // assembled from ../user/initcode.S
 // od -t xC ../user/initcode
@@ -324,6 +340,60 @@ fork(void)
 
   return pid;
 }
+int
+thread_create(void(*fcn)(void*), void *arg, void*stack)
+{
+  int i, pid;
+  struct proc *np;
+  struct proc *p = myproc();
+
+  // Allocate process.
+  if((np = allocproc()) == 0){
+    return -1;
+  }
+
+  // Copy user memory from parent to child.
+  if(uvmmirror(p->pagetable, np->pagetable, p->sz) < 0){
+    freeproc(np);
+    release(&np->lock);
+    return -1;
+  }
+  np->sz = p->sz;
+
+  // copy saved user registers.
+  *(np->trapframe) = *(p->trapframe);
+
+  // Cause fork to return 0 in the child.
+  np->trapframe->a0 = (uint64)arg;
+
+  // setting epc + stack address
+  np->trapframe->epc = (uint64)fcn;
+  np->trapframe->sp = (uint64)(stack + 4096);
+  np->trapframe->sp -= np->trapframe->sp % 16; // riscv sp must be 16-byte aligned
+  np->is_thread = 1;
+  np->mem_id = p->mem_id;
+  // increment reference counts on open file descriptors.
+  for(i = 0; i < NOFILE; i++)
+    if(p->ofile[i])
+      np->ofile[i] = filedup(p->ofile[i]);
+  np->cwd = idup(p->cwd);
+
+  safestrcpy(np->name, p->name, sizeof(p->name));
+
+  pid = np->pid;
+
+  release(&np->lock);
+
+  acquire(&wait_lock);
+  np->parent = p;
+  release(&wait_lock);
+
+  acquire(&np->lock);
+  np->state = RUNNABLE;
+  release(&np->lock);
+
+  return pid;
+}
 
 // Pass p's abandoned children to init.
 // Caller must hold wait_lock.
@@ -384,6 +454,47 @@ exit(int status)
   sched();
   panic("zombie exit");
 }
+void
+thread_exit(void)
+{
+  struct proc *p = myproc();
+
+  if(p == initproc)
+    panic("init exiting");
+
+  // Close all open files.
+  for(int fd = 0; fd < NOFILE; fd++){
+    if(p->ofile[fd]){
+      struct file *f = p->ofile[fd];
+      fileclose(f);
+      p->ofile[fd] = 0;
+    }
+  }
+
+  begin_op();
+  iput(p->cwd);
+  end_op();
+  p->cwd = 0;
+
+  acquire(&wait_lock);
+
+  // Give any children to init.
+  reparent(p);
+
+  // Parent might be sleeping in wait().
+  wakeup(p->parent);
+  
+  acquire(&p->lock);
+
+  p->xstate = 0;
+  p->state = ZOMBIE;
+
+  release(&wait_lock);
+
+  // Jump into the scheduler, never to return.
+  sched();
+  panic("zombie exit");
+}
 
 // Wait for a child process to exit and return its pid.
 // Return -1 if this process has no children.
@@ -414,6 +525,47 @@ wait(uint64 addr)
             release(&wait_lock);
             return -1;
           }
+          freeproc(pp);
+          release(&pp->lock);
+          release(&wait_lock);
+          return pid;
+        }
+        release(&pp->lock);
+      }
+    }
+
+    // No point waiting if we don't have any children.
+    if(!havekids || killed(p)){
+      release(&wait_lock);
+      return -1;
+    }
+    
+    // Wait for a child to exit.
+    sleep(p, &wait_lock);  //DOC: wait-sleep
+  }
+}
+int
+thread_join(int thread_id)
+{
+  struct proc *pp;
+  int havekids, pid;
+  struct proc *p = myproc();
+
+  acquire(&wait_lock);
+
+  for(;;){
+    // Scan through table looking for exited children.
+    havekids = 0;
+    for(pp = proc; pp < &proc[NPROC]; pp++){
+      if(pp->parent == p && pp->pid == thread_id){
+        // make sure the child isn't still in exit() or swtch().
+        acquire(&pp->lock);
+
+        havekids = 1;
+        if(pp->state == ZOMBIE){
+          // Found one.
+          pid = pp->pid;
+
           freeproc(pp);
           release(&pp->lock);
           release(&wait_lock);
