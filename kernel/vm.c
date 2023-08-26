@@ -347,9 +347,33 @@ uvmmirror(pagetable_t old, pagetable_t new, uint64 sz)
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
+      panic("uvmmirror: pte should exist");
     if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+      panic("uvmmirror: page not present");
+    pa = PTE2PA(*pte);
+    flags = PTE_FLAGS(*pte);
+    if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
+      goto err;
+    }
+  }
+  return 0;
+
+ err:
+  uvmunmap(new, 0, i / PGSIZE, 1);
+  return -1;
+}
+int
+uvmmirror_edited(pagetable_t old, pagetable_t new, uint64 oldSz, uint64 newSz)
+{
+  pte_t *pte;
+  uint64 pa, i;
+  uint flags;
+
+  for(i =PGROUNDUP(oldSz); i < newSz; i += PGSIZE){
+    if((pte = walk(old, i, 0)) == 0)
+      panic("uvmmirror_edited: pte should exist");
+    if((*pte & PTE_V) == 0)
+      panic("uvmmirror_edited: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){

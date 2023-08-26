@@ -53,7 +53,7 @@ procinit(void)
   initlock(&wait_lock, "wait_lock");
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
-
+      
       p->state = UNUSED;
       p->kstack = KSTACK((int) (p - proc));
   }
@@ -126,7 +126,7 @@ found:
   p->pid = allocpid();
   p->mem_id = p->pid;
   p->state = USED;
-
+  initlock(&p->memlock, "memlock");
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     freeproc(p);
@@ -279,6 +279,11 @@ growproc(int n)
   struct proc *p = myproc();
 
   sz = p->sz;
+  for( struct proc *pp=proc; pp< &proc[NPROC];pp++){
+    if(pp->mem_id==p->mem_id ){
+      acquire(&pp->memlock);
+    }
+  }
   if(n > 0){
     if((sz = uvmalloc(p->pagetable, sz, sz + n, PTE_W)) == 0) {
       return -1;
@@ -287,6 +292,25 @@ growproc(int n)
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
   p->sz = sz;
+  for( struct proc *pp=proc; pp< &proc[NPROC];pp++){
+    if(pp!=p && pp->mem_id==p->mem_id ){
+      if(n>=0){
+        if(uvmmirror_edited(p->pagetable, pp->pagetable, pp->sz, p->sz)<0){
+          return -1;
+        }
+      }
+      else if(n<0){
+        uvmunmap(pp->pagetable,PGROUNDUP(p->sz),(PGROUNDUP(pp->sz) - PGROUNDUP(p->sz))/PGSIZE,0);
+      }
+      pp->sz= p->sz;
+    }
+
+  }
+    for( struct proc *pp=proc; pp< &proc[NPROC];pp++){
+    if(pp->mem_id==p->mem_id ){
+      release(&pp->memlock);
+    }
+  }
   return 0;
 }
 
