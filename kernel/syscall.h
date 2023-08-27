@@ -23,3 +23,6 @@
 #define SYS_thread_create  22
 #define SYS_thread_join  23
 #define SYS_thread_exit  24
+#define SYS_sleep_edited  25
+#define SYS_wakeup_edited  26
+

@@ -110,6 +110,8 @@ void            procdump(void);
 int             thread_create(void(*fcn)(void*), void *arg, void*stack);
 int             thread_join(int thread_id);
 void            thread_exit(void);
+void            sleep_edited(uint64 lk);
+void            wakeup_edited(int pid);
 
 // swtch.S
 void            swtch(struct context*, struct context*);
@@ -178,6 +180,7 @@ void            uvmclear(pagetable_t, uint64);
 pte_t *         walk(pagetable_t, uint64, int);
 uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
+int             copyout_edited(pagetable_t, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
 

@@ -7,11 +7,12 @@
 struct balance {
     char name[32];
     int amount;
+    int thread_id;
 };
 struct thread_spinlock lock;
 struct thread_mutex mlock;
 volatile int total_balance = 0;
-struct thread_mutex printLock;
+int thread1, thread2, r1, r2;
 
 volatile unsigned int delay (unsigned int d) {
    unsigned int i; 
@@ -25,10 +26,11 @@ volatile unsigned int delay (unsigned int d) {
 void do_work(void *arg){
     int i; 
     int old;
+
     struct balance *b = (struct balance*) arg; 
-    thread_mutex_lock(&printLock);
+    if(b->thread_id==2)thread_join(thread1);
     printf( "Starting do_work: s:%s\n", b->name);
-    thread_mutex_unlock(&printLock);
+
     for (i = 0; i < b->amount; i++) { 
         // lock and mlock will be implemented by you.
         //  thread_spin_lock(&lock);
@@ -41,34 +43,33 @@ void do_work(void *arg){
          thread_mutex_unlock(&mlock);
 
     }
-    thread_mutex_lock(&printLock);
+  
     printf( "Done s:%x\n", b->name);
-    thread_mutex_unlock(&printLock);
+
     thread_exit();
     return;
 }
 
 int main(int argc, char *argv[]) {
 
-  struct balance b1 = {"b1", 3200};
-  struct balance b2 = {"b2", 2800};
-  thread_mutex_init(&printLock);
+  struct balance b1 = {"b1", 3200,1};
+  struct balance b2 = {"b2", 2800,2};
   thread_spin_init(&lock);
   thread_mutex_init(&mlock);
   void *s1, *s2;
-  int thread1, thread2, r1, r2;
 
   s1 = malloc(4096); // 4096 is the PGSIZE defined in kernel/riscv.h
   s2 = malloc(4096);
 
   thread1 = thread_create(do_work, (void*)&b1, s1);
+  sleep(10);
   thread2 = thread_create(do_work, (void*)&b2, s2); 
 
-  r1 = thread_join(thread1);
+//   r1 = thread_join(thread1);
   r2 = thread_join(thread2);
-  thread_mutex_lock(&printLock);
+  
   printf("Threads finished: (%d):%d, (%d):%d, shared balance:%d\n", 
       thread1, r1, thread2, r2, total_balance);
-    thread_mutex_unlock(&printLock);
+
   exit(0);
 }

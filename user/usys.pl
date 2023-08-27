@@ -39,3 +39,5 @@ entry("uptime");
 entry("thread_create");
 entry("thread_join");
 entry("thread_exit");
+entry("sleep_edited");
+entry("wakeup_edited");

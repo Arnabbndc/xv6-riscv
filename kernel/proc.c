@@ -53,7 +53,7 @@ procinit(void)
   initlock(&wait_lock, "wait_lock");
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
-      
+
       p->state = UNUSED;
       p->kstack = KSTACK((int) (p - proc));
   }
@@ -581,7 +581,7 @@ thread_join(int thread_id)
     // Scan through table looking for exited children.
     havekids = 0;
     for(pp = proc; pp < &proc[NPROC]; pp++){
-      if(pp->parent == p && pp->pid == thread_id){
+      if( pp->pid == thread_id){
         // make sure the child isn't still in exit() or swtch().
         acquire(&pp->lock);
 
@@ -736,6 +736,29 @@ sleep(void *chan, struct spinlock *lk)
   release(&p->lock);
   acquire(lk);
 }
+void
+sleep_edited(uint64 lk)
+{
+  struct proc *p = myproc();
+  
+  // Must acquire p->lock in order to
+  // change p->state and then call sched.
+  // Once we hold p->lock, we can be
+  // guaranteed that we won't miss any wakeup
+  // (wakeup locks p->lock),
+  // so it's okay to release lk.
+
+  acquire(&p->lock);  //DOC: sleeplock1
+  copyout_edited(p->pagetable,lk);
+  // Go to sleep.
+  p->state = SLEEPING;
+
+  sched();
+
+
+  // Reacquire original lock.
+  release(&p->lock);
+}
 
 // Wake up all processes sleeping on chan.
 // Must be called without any p->lock.
@@ -755,6 +778,21 @@ wakeup(void *chan)
   }
 }
 
+void
+wakeup_edited(int pid)
+{
+  struct proc *p;
+
+  for(p = proc; p < &proc[NPROC]; p++) {
+    if(p != myproc()){
+      acquire(&p->lock);
+      if(p->state == SLEEPING && p->pid == pid) {
+        p->state = RUNNABLE;
+      }
+      release(&p->lock);
+    }
+  }
+}
 // Kill the process with the given pid.
 // The victim won't exit until it tries to return
 // to user space (see usertrap() in trap.c).

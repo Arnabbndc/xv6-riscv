@@ -69,6 +69,15 @@ sys_sleep(void)
 }
 
 uint64
+sys_sleep_edited(void)
+{
+  uint64 lk;
+  argaddr(0,&lk);
+  sleep_edited(lk);
+  return 0;
+}
+
+uint64
 sys_kill(void)
 {
   int pid;
@@ -114,5 +123,13 @@ uint64
 sys_thread_exit(void)
 {
   thread_exit();
+  return 0;
+}
+
+uint64
+sys_wakeup_edited(void){
+  int pid;
+  argint(0,&pid);
+  wakeup_edited(pid);
   return 0;
 }

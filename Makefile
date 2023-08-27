@@ -132,6 +132,7 @@ UPROGS=\
 	$U/_grind\
 	$U/_wc\
 	$U/_threads\
+	$U/_producer_consumer\
 	$U/_zombie\
 
 fs.img: mkfs/mkfs README $(UPROGS)

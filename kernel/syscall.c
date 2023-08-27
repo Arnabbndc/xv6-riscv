@@ -104,6 +104,8 @@ extern uint64 sys_close(void);
 extern uint64 sys_thread_create(void);
 extern uint64 sys_thread_join(void);
 extern uint64 sys_thread_exit(void);
+extern uint64 sys_sleep_edited(void);
+extern uint64 sys_wakeup_edited(void);
 
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
@@ -132,6 +134,8 @@ static uint64 (*syscalls[])(void) = {
 [SYS_thread_create]   sys_thread_create,
 [SYS_thread_join]   sys_thread_join,
 [SYS_thread_exit]   sys_thread_exit,
+[SYS_sleep_edited]   sys_sleep_edited,
+[SYS_wakeup_edited]   sys_wakeup_edited,
 };
 
 void
